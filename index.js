@@ -12,6 +12,7 @@ app.use(express.json());
 const { MONGO_DB_USERNAME, MONGO_DB_PASSWORD, MONGO_DB_NAME, JWT_SECRET } =
   process.env;
 
+// 🔌 Connexion MongoDB
 mongoose
   .connect(
     `mongodb+srv://${MONGO_DB_USERNAME}:${MONGO_DB_PASSWORD}@shkapi.buq4jhk.mongodb.net/${MONGO_DB_NAME}?retryWrites=true&w=majority`
@@ -19,11 +20,23 @@ mongoose
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ Mongo error:", err));
 
-// MODELS
-const Post = mongoose.model("Post", {
-  title: String,
-  content: String,
-  author: String,
+// 📦 MODELS
+const Product = mongoose.model("Product", {
+  name: String,
+  description: String,
+  price: Number,
+  image: String,
+  createdAt: { type: Date, default: Date.now },
+});
+
+const Order = mongoose.model("Order", {
+  userId: mongoose.Schema.Types.ObjectId,
+  products: [
+    {
+      productId: mongoose.Schema.Types.ObjectId,
+      quantity: Number,
+    },
+  ],
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -32,33 +45,62 @@ const User = mongoose.model("User", {
   password: String,
 });
 
-// ROUTES
-app.get("/posts", async (req, res) => {
-  const posts = await Post.find().sort({ _id: -1 });
-  res.json(posts);
+// 🛒 ROUTES PRODUITS
+app.get("/products", async (req, res) => {
+  const products = await Product.find().sort({ createdAt: -1 });
+  res.json(products);
 });
 
-app.post("/posts", async (req, res) => {
+app.post("/products", async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Token manquant" });
+
+  try {
+    jwt.verify(token, JWT_SECRET); // Auth only
+    const { name, description, price, image } = req.body;
+    const newProduct = new Product({ name, description, price, image });
+    await newProduct.save();
+    res.status(201).json(newProduct);
+  } catch (err) {
+    res.status(401).json({ error: "Token invalide" });
+  }
+});
+
+// 🧾 ROUTES COMMANDES
+app.post("/orders", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Token manquant" });
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const { title, content } = req.body;
-
-    const newPost = new Post({
-      title,
-      content,
-      author: decoded.username,
+    const { products } = req.body;
+    const order = new Order({
+      userId: decoded.id,
+      products,
     });
-
-    await newPost.save();
-    res.json(newPost);
+    await order.save();
+    res.status(201).json(order);
   } catch (err) {
-    res.status(401).json({ error: "Token invalide ou expiré" });
+    res.status(401).json({ error: "Token invalide" });
   }
 });
 
+app.get("/orders", async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Token manquant" });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const orders = await Order.find({ userId: decoded.id }).sort({
+      createdAt: -1,
+    });
+    res.json(orders);
+  } catch (err) {
+    res.status(401).json({ error: "Token invalide" });
+  }
+});
+
+// 👤 AUTH
 app.post("/register", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
@@ -111,5 +153,44 @@ app.post("/login", async (req, res) => {
   }
 });
 
+app.post("/products/seed", async (req, res) => {
+  const sampleProducts = [
+    {
+      name: "Chaussures sport",
+      description: "Confort ultime pour vos séances de course.",
+      price: 89.99,
+      image: "https://placehold.co/600x400?text=Chaussures+sport",
+    },
+    {
+      name: "Montre connectée",
+      description: "Gardez un œil sur vos performances.",
+      price: 149.99,
+      image: "https://placehold.co/600x400?text=Montre+connectée",
+    },
+    {
+      name: "Sac à dos urbain",
+      description: "Style et praticité pour le quotidien.",
+      price: 59.99,
+      image: "https://placehold.co/600x400?text=Sac+à+dos+urbain",
+    },
+    {
+      name: "Casque Bluetooth",
+      description: "Son immersif sans fil.",
+      price: 119.99,
+      image: "https://placehold.co/600x400?text=Casque+Bluetooth",
+    },
+  ];
+
+  try {
+    const inserted = await Product.insertMany(sampleProducts);
+    res.status(201).json({ message: "Produits insérés", products: inserted });
+  } catch (err) {
+    console.error("Erreur d'insertion :", err);
+    res.status(500).json({ error: "Erreur lors de l'insertion des produits" });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 API listening on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 E-commerce API listening on port ${PORT}`)
+);
