@@ -190,6 +190,25 @@ app.post("/products/seed", async (req, res) => {
   }
 });
 
+app.get("/orders/:id", async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Token manquant" });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const order = await Order.findOne({
+      _id: req.params.id,
+      userId: decoded.id, // vérifie que c'est bien sa commande
+    });
+
+    if (!order) return res.status(404).json({ error: "Commande non trouvée" });
+
+    res.json(order);
+  } catch (err) {
+    res.status(401).json({ error: "Token invalide" });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () =>
   console.log(`🚀 E-commerce API listening on port ${PORT}`)
